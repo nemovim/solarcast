@@ -1,0 +1,1 @@
+"""Solar-panel inference implementation."""

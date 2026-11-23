@@ -1,0 +1,47 @@
+# 인증키 및 보안 파일
+.env
+*.env
+*.key
+secrets.*
+
+# Node.js
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 임시 폴더
+/tmp
+
+# 원천 대용량 데이터 (재배포 금지 및 재생성 가능 산출물)
+/data/bitgaram/
+ai-hub/
+data/aihub/
+*.zip
+data/*/tiles/
+data/*/raw_tiles/
+*.tif
+*.tif.aux.xml
+
+# 모델 체크포인트
+models/
+*.pt
+*.pth
+
+# 개인별 마스킹 결과
+/data/bitgaram/annotations_v2/
