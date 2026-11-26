@@ -3,14 +3,14 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 
 export const LAYERS = [
   { id: 'buildings', name: '3D 건물', color: '#768b80' },
-  { id: 'shadows', name: '옥상 음영', color: '#997bd9' },
   { id: 'panels', name: '기존 패널', color: '#65c4e4' },
+  { id: 'roofs', name: '탐지 옥상', color: '#dd9b42' },
   { id: 'available', name: '설치 가능 영역', color: '#e8ec85' },
 ] as const;
 
 type LayerId = (typeof LAYERS)[number]['id'];
 export type LayerVisibility = Record<LayerId, boolean>;
-export const DEFAULT_LAYERS: LayerVisibility = { buildings: true, shadows: true, panels: true, available: true };
+export const DEFAULT_LAYERS: LayerVisibility = { buildings: true, panels: true, roofs: true, available: true };
 type SceneMap = MapLibreMap;
 
 export const DEMO_BUILDING = {
@@ -35,7 +35,6 @@ function rectangle(kind: LayerId, west: number, south: number, east: number, nor
 const demoScene: FeatureCollection<Polygon> = {
   type: 'FeatureCollection', features: [
     rectangle('buildings', -42, -25, 42, 25),
-    rectangle('shadows', -39, 5, -10, 22),
     rectangle('panels', -39, -21, -29, -4),
     rectangle('panels', -26, -21, -16, -4),
     rectangle('available', -3, -20, 37, 17),

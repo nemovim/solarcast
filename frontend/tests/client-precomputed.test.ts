@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadAvailable, loadPrecomputed, loadRoofs, readModels, viewportTiles, coverageGeometry } from '../app/client-precomputed';
+import { createPreviewLoader, loadAvailable, loadPanelPreview, loadPrecomputed, loadRoofs, readModels, viewportTiles, coverageGeometry } from '../app/client-precomputed';
 import { worldCoordinate } from '../app/client-imagery';
 import type { Viewport } from '../app/map-panel';
 
@@ -8,6 +8,47 @@ const x=446793, y=207630, key=`${x}_${y}`;
 const viewport: Viewport=[worldCoordinate(x*256+10,y*256+10),worldCoordinate(x*256+200,y*256+10),worldCoordinate(x*256+200,y*256+200),worldCoordinate(x*256+10,y*256+200)];
 const manifest={version:1,zoom:19,model:'test',model_sha256:'test',min_confidence:.05,source:'test',imagery_observed_at:null,updated_at:'2026-01-01',tiles:{[key]:{file:`tiles/${key}.geojson`,count:2,processed_at:'2026-01-01'}}};
 const polygon={type:'Polygon',coordinates:[[[126,35],[126.1,35],[126.1,35.1],[126,35]]]};
+
+test('preview caches each processed tile across map moves for panels and roofs', async () => {
+  const original=globalThis.fetch;
+  const otherKey=`${x+1}_${y}`;
+  const other: Viewport=[worldCoordinate((x+1)*256+10,y*256+10),worldCoordinate((x+1)*256+200,y*256+10),worldCoordinate((x+1)*256+200,y*256+200),worldCoordinate((x+1)*256+10,y*256+200)];
+  const urls:string[]=[];
+  globalThis.fetch=async (url)=> {
+    const path=String(url); urls.push(path);
+    if (path.endsWith('manifest.json')) return Response.json({...manifest,tiles:{[key]:{...manifest.tiles[key],count:1},[otherKey]:{file:`tiles/${otherKey}.geojson`,count:1,processed_at:'2026-01-01'}}});
+    return Response.json({type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{confidence:.8}}]});
+  };
+  try {
+    for (const kind of ['panel','roof'] as const) {
+      const load=createPreviewLoader(kind,'model');
+      assert.equal((await load(viewport)).features.length,1);
+      assert.equal((await load(other)).features.length,2);
+      assert.equal((await load(viewport)).features.length,2);
+      assert.equal(urls.filter((url)=>url.includes(`/${kind}/`) && url.endsWith('manifest.json')).length,1);
+      assert.equal(urls.filter((url)=>url.includes(`/${kind}/`) && url.includes('/tiles/')).length,2);
+    }
+  } finally { globalThis.fetch=original; }
+});
+
+test('panel preview loads all saved scores from processed visible tiles only', async () => {
+  const original=globalThis.fetch;
+  const urls:string[]=[];
+  const wide: Viewport=[worldCoordinate(x*256+10,y*256+10),worldCoordinate((x+1)*256+200,y*256+10),worldCoordinate((x+1)*256+200,y*256+200),worldCoordinate(x*256+10,y*256+200)];
+  globalThis.fetch=async (url)=> {
+    const path=String(url); urls.push(path);
+    return path.endsWith('manifest.json') ? Response.json(manifest) : Response.json({type:'FeatureCollection',features:[
+      {type:'Feature',geometry:polygon,properties:{confidence:.3}},
+      {type:'Feature',geometry:polygon,properties:{confidence:.8}},
+    ]});
+  };
+  try {
+    const preview=await loadPanelPreview('model',wide);
+    assert.deepEqual(preview.panels.map((panel)=>panel.properties.confidence),[.3,.8]);
+    assert.equal(preview.minConfidence,.05);
+    assert.equal(urls.filter((url)=>url.includes('/tiles/')).length,1);
+  } finally { globalThis.fetch=original; }
+});
 
 test('selects only processed tiles and filters precomputed detection confidence', async () => {
   const original=globalThis.fetch;

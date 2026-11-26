@@ -6,7 +6,7 @@ import type { GeoJSONSource, Map as MapLibreMap, StyleSpecification } from 'mapl
 import { DEMO_BUILDING, hitDemoBuilding, registerDemoScene, syncDemoLayers, type LayerVisibility } from './demo-building';
 import { BUILDING_LAYER, BUILDING_SOURCE, BUILDING_ZOOM, EMPTY_BUILDINGS, KOREA_BOUNDS, type BuildingCollection, type BuildingInfo } from './vworld-map';
 import type { AnalysisResult } from './analysis';
-import type { FeatureCollection, Polygon } from 'geojson';
+import type { FeatureCollection, MultiPolygon, Polygon } from 'geojson';
 
 export type MapPosition = { lng: number; lat: number; zoom: number };
 export type Viewport = [number, number][];
@@ -36,7 +36,7 @@ const mapStyle = (vworld: boolean): StyleSpecification => ({
 
 const demoNumber = new Intl.NumberFormat('ko-KR');
 const heightNumber = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 });
-const HIDDEN_DEMO: LayerVisibility = { buildings: false, shadows: false, panels: false, available: false };
+const HIDDEN_DEMO: LayerVisibility = { buildings: false, panels: false, roofs: false, available: false };
 
 function buildingAt(map: MapLibreMap, point: [number, number]): BuildingInfo | null {
   if (!map.getLayer(BUILDING_LAYER) || map.getZoom() < BUILDING_ZOOM) return null;
@@ -45,8 +45,8 @@ function buildingAt(map: MapLibreMap, point: [number, number]): BuildingInfo | n
   return { name: properties.name, heightM: properties.heightM, heightSource: properties.heightSource };
 }
 
-export default function MapPanel({ target, onPosition, onViewport, visibility, vworldEnabled, analysis, coverage }: {
-  target: MapPosition; onPosition: (position: MapPosition) => void; onViewport: (viewport: Viewport) => void; visibility: LayerVisibility; vworldEnabled: boolean; analysis: AnalysisResult | null; coverage: FeatureCollection<Polygon>;
+export default function MapPanel({ target, onViewport, visibility, showCoverage, vworldEnabled, analysis, coverage, panels, roofs }: {
+  target: MapPosition; onViewport: (viewport: Viewport) => void; visibility: LayerVisibility; showCoverage: boolean; vworldEnabled: boolean; analysis: AnalysisResult | null; coverage: FeatureCollection<Polygon>; panels: FeatureCollection<Polygon | MultiPolygon>; roofs: FeatureCollection<Polygon | MultiPolygon>;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -54,12 +54,18 @@ export default function MapPanel({ target, onPosition, onViewport, visibility, v
   const realBuildingMode = useRef(visibility.buildings);
   const analysisRef = useRef(analysis);
   analysisRef.current = analysis;
+  const panelsRef = useRef(panels);
+  panelsRef.current = panels;
+  const roofsRef = useRef(roofs);
+  roofsRef.current = roofs;
   const coverageRef = useRef(coverage);
   coverageRef.current = coverage;
+  const coverageVisibleRef = useRef(showCoverage);
+  coverageVisibleRef.current = showCoverage;
   const updateAnalysis = (activeMap: MapLibreMap, result: AnalysisResult | null) => {
-    for (const [name, color] of [['available_roofs', '#18b776'], ['existing_panels', '#397ee8'], ['shadows', '#3b3d54']] as const) {
+    for (const [name, color] of [['available_roofs', '#18b776'], ['detected_roofs', '#dd9b42'], ['existing_panels', '#397ee8']] as const) {
       const id = `analysis-${name}`;
-      const data = result?.[name] ?? { type: 'FeatureCollection' as const, features: [] };
+      const data = name === 'existing_panels' ? panelsRef.current : name === 'detected_roofs' ? roofsRef.current : result?.[name] ?? { type: 'FeatureCollection' as const, features: [] };
       const source = activeMap.getSource<GeoJSONSource>(id);
       if (source) source.setData(data);
       else {
@@ -174,7 +180,7 @@ export default function MapPanel({ target, onPosition, onViewport, visibility, v
           });
         }
         activeMap.addSource('precomputed-coverage', { type: 'geojson', data: coverageRef.current });
-        activeMap.addLayer({ id:'precomputed-coverage-outline', type:'line', source:'precomputed-coverage', paint:{ 'line-color':'#ffc45a', 'line-width':1.5, 'line-opacity':0.8 } });
+        activeMap.addLayer({ id:'precomputed-coverage-outline', type:'line', source:'precomputed-coverage', layout:{visibility:coverageVisibleRef.current ? 'visible' : 'none'}, paint:{ 'line-color':'#ffc45a', 'line-width':0.6, 'line-opacity':0.55 } });
         registerDemoScene(activeMap, HIDDEN_DEMO);
         updateAnalysis(activeMap, analysisRef.current);
         updateViewport();
@@ -183,9 +189,7 @@ export default function MapPanel({ target, onPosition, onViewport, visibility, v
       activeMap.on('styledata', registerScene);
       activeMap.on('load', registerScene);
       activeMap.on('moveend', () => {
-        const center = activeMap.getCenter();
         setTilted(activeMap.getPitch() > 0);
-        onPosition({ lng: center.lng, lat: center.lat, zoom: activeMap.getZoom() });
         updateViewport();
         loadBuildings(activeMap);
       });
@@ -212,11 +216,23 @@ export default function MapPanel({ target, onPosition, onViewport, visibility, v
       map?.remove();
       mapRef.current = null;
     };
-  }, [onPosition, onViewport, vworldEnabled]);
+  }, [onViewport, vworldEnabled]);
 
   useEffect(() => {
     mapRef.current?.getSource<GeoJSONSource>('precomputed-coverage')?.setData(coverage);
   }, [coverage]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map?.getLayer('precomputed-coverage-outline')) map.setLayoutProperty('precomputed-coverage-outline', 'visibility', showCoverage ? 'visible' : 'none');
+  }, [showCoverage]);
+
+  useEffect(() => {
+    mapRef.current?.getSource<GeoJSONSource>('analysis-existing_panels')?.setData(panels);
+  }, [panels]);
+  useEffect(() => {
+    mapRef.current?.getSource<GeoJSONSource>('analysis-detected_roofs')?.setData(roofs);
+  }, [roofs]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -237,7 +253,7 @@ export default function MapPanel({ target, onPosition, onViewport, visibility, v
     if (!map) return;
     syncDemoLayers(map, viewingDemo ? visibility : HIDDEN_DEMO);
     if (map.getLayer(BUILDING_LAYER)) map.setLayoutProperty(BUILDING_LAYER, 'visibility', realBuildingMode.current ? 'visible' : 'none');
-    for (const [id, shown] of [['analysis-available_roofs', visibility.available], ['analysis-existing_panels', visibility.panels], ['analysis-shadows', visibility.shadows]] as const) {
+    for (const [id, shown] of [['analysis-available_roofs', visibility.available], ['analysis-detected_roofs', visibility.roofs], ['analysis-existing_panels', visibility.panels]] as const) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', shown && !viewingDemo ? 'visible' : 'none');
     }
   }, [visibility, viewingDemo, analysis]);

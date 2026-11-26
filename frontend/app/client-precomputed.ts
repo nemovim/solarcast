@@ -97,6 +97,39 @@ export async function loadPrecomputed(modelId: string, viewport: Viewport, thres
   return {panels: result.features as PanelFeature[], manifest: result.manifest};
 }
 
+export async function loadPanelPreview(modelId: string, viewport: Viewport) {
+  const manifest = await readManifest('panel', modelId);
+  const selected = viewportTiles(viewport).filter((key) => Boolean(manifest.tiles[key]));
+  const result = await loadTiles('panel', modelId, viewport, manifest.min_confidence!, () => {}, manifest, selected);
+  return {panels: result.features as PanelFeature[], minConfidence: manifest.min_confidence!};
+}
+
+// Each loader belongs to one selected model and keeps fetched tiles across map moves.
+export function createPreviewLoader(kind: ModelKind, modelId: string) {
+  let manifestPromise: Promise<PrecomputedManifest> | undefined;
+  const tiles = new Map<string, Promise<RoofFeature[]>>();
+  return async (viewport: Viewport) => {
+    if (!manifestPromise) manifestPromise = readManifest(kind, modelId).catch((error) => { manifestPromise=undefined; throw error; });
+    const manifest = await manifestPromise;
+    const selected = viewportTiles(viewport).filter((key) => Boolean(manifest.tiles[key]));
+    let next=0;
+    async function worker() {
+      while (next < selected.length) {
+        const key=selected[next++];
+        let pending=tiles.get(key);
+        if (!pending) {
+          pending=loadTiles(kind,modelId,viewport,kind === 'panel' ? manifest.min_confidence! : 0,()=>{},manifest,[key]).then((result)=>result.features);
+          tiles.set(key,pending);
+          pending.catch(()=>{ if (tiles.get(key) === pending) tiles.delete(key); });
+        }
+        await pending;
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(4,selected.length)},()=>worker()));
+    return {features:(await Promise.all([...tiles.values()])).flat(), minConfidence:manifest.min_confidence};
+  };
+}
+
 export async function loadRoofs(modelId: string, viewport: Viewport, progress: (s: string) => void) {
   const result = await loadTiles('roof', modelId, viewport, 0, progress);
   return {roofs: result.features, manifest: result.manifest};
