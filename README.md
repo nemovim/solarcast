@@ -40,7 +40,7 @@ python -m pipelines.precompute --panel my_panel --roof my_roof
 
 패널의 다른 모델 설정은 `--panel-config <경로>`로 지정합니다. 가중치 파일 이름은 영문, 숫자, 점, 밑줄, 하이픈을 사용합니다. 같은 파일 이름의 가중치나 설정을 바꾸면 기존 결과와 섞지 않도록 중단합니다. 기존 결과를 보존하려면 가중치 파일 이름을 바꿔 새 모델 폴더에 저장합니다.
 
-기본값은 VWorld 영상, 빛가람 z19 범위 `X 446760~446821, Y 207604~207658`의 3,410개 타일, `cuda:0`입니다. 영상은 메모리에서 읽으며, 옥상 추론에는 건물 외곽선과 3×3 타일 영상을 사용합니다. 결과는 `frontend/public/precomputed/panel/<가중치 이름>/`과 `frontend/public/precomputed/roof/<가중치 이름>/`에 확장자 없이 저장하고, 각 폴더의 `index.json`을 갱신합니다. 중단 후 같은 명령을 실행하면 성공한 타일을 건너뜁니다. 옥상 건물을 처리하지 못한 타일은 완료로 표시하지 않고 나중에 다시 시도합니다.
+기본값은 VWorld 영상, 빛가람 z19 범위 `X 446760~446821, Y 207604~207658`의 3,410개 타일, `cuda:0`입니다. 영상은 메모리에서 읽으며, 옥상 추론에는 건물 외곽선과 기본 3×3 타일 영상을 사용하고 큰 건물에는 영상 범위를 확장합니다. 결과는 `frontend/public/precomputed/panel/<가중치 이름>/`과 `frontend/public/precomputed/roof/<가중치 이름>/`에 확장자 없이 저장하고, 각 폴더의 `index.json`을 갱신합니다. 중단 후 같은 명령을 실행하면 성공한 타일을 건너뜁니다. 옥상 건물을 처리하지 못한 타일은 완료로 표시하지 않고 나중에 다시 시도합니다.
 
 GPU 서버에서 생성한 결과를 적용하려면 **`precomputed/` 전체**를 배포용 프로젝트에 반영한 뒤 다시 배포해야 합니다. 모델 목록은 추론 환경의 결과 폴더들을 기준으로 생성되므로, 기존 모델도 유지하려면 다음 추론 전에 기존 `precomputed/` 전체를 GPU 환경에 복사합니다. 다른 구역은 `--bounds X_MIN Y_MIN X_MAX Y_MAX`로 z19 타일 범위를 지정하거나 `--tile-index <CSV>`로 좌표 목록을 지정할 수 있습니다. 다른 옵션은 `python -m pipelines.precompute --help`로 확인할 수 있습니다. 패널과 옥상을 따로 실행할 때는 `pipelines.precompute_panels`, `pipelines.precompute_roofs`를 사용합니다.
 

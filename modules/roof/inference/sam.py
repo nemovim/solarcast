@@ -68,4 +68,8 @@ class SamRoofModel:
             if not roof.any():
                 raise ValueError('SAM returned an empty roof; tile was not marked complete')
             roof_all[top:bottom, left:right] |= roof
-        return roof_all[256:512, 256:512]
+        tile_left, tile_top = inverse * (tile_bounds[0], tile_bounds[3])
+        col, row = round(tile_left), round(tile_top)
+        if col < 0 or row < 0 or col + 256 > w or row + 256 > h:
+            raise ValueError('Tile exceeds imagery mosaic; tile was not marked complete')
+        return roof_all[row:row + 256, col:col + 256]

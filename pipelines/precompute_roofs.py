@@ -4,12 +4,15 @@ import csv
 from datetime import datetime, timezone
 from functools import lru_cache
 import json
+import math
 import os
 from pathlib import Path
 import re
 
 import numpy as np
 from pyproj import Transformer
+from shapely.geometry import shape
+from shapely.ops import transform
 from dotenv import load_dotenv
 
 from modules.imagery.buildings import fetch_buildings
@@ -19,6 +22,33 @@ from modules.roof.inference.sam import SamRoofModel
 from pipelines.precompute_panels import atomic_json, export_tile, model_hash, update_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def mosaic_bounds(x, y, buildings):
+    """Include complete intersecting footprints, subject to a memory limit."""
+    affine = tile_transform(x, y)
+    inverse = ~affine
+    left, top = affine * (0, 0)
+    right, bottom = affine * (256, 256)
+    from shapely.geometry import box
+    tile_box = box(left, bottom, right, top)
+    project = Transformer.from_crs(4326, 3857, always_xy=True).transform
+    xmin, ymin, xmax, ymax = x - 1, y - 1, x + 1, y + 1
+    for feature in buildings:
+        geometry = transform(project, shape(feature['geometry']))
+        if geometry.is_empty or not geometry.is_valid:
+            raise ValueError('Invalid building geometry; tile was not marked complete')
+        if not geometry.intersects(tile_box):
+            continue
+        west, south, east, north = geometry.bounds
+        pixels = [inverse * (px, py) for px in (west, east) for py in (south, north)]
+        xmin = min(xmin, x + math.floor((min(p[0] for p in pixels) - 40) / 256))
+        xmax = max(xmax, x + math.floor((max(p[0] for p in pixels) + 40) / 256))
+        ymin = min(ymin, y + math.floor((min(p[1] for p in pixels) - 40) / 256))
+        ymax = max(ymax, y + math.floor((max(p[1] for p in pixels) + 40) / 256))
+    if xmin < 0 or ymin < 0 or xmax >= 2**19 or ymax >= 2**19 or (xmax-xmin+1)*(ymax-ymin+1) > 100:
+        raise ValueError('Building imagery mosaic exceeds safe limits; tile was not marked complete')
+    return xmin, ymin, xmax, ymax
 
 
 def main():
@@ -77,13 +107,14 @@ def main():
         try:
             buildings = fetch_buildings(x, y, key=key, domain=domain)
             if buildings:
-                mosaic = np.concatenate([np.concatenate([tile(tx, ty) for tx in range(x-1, x+2)], axis=1)
-                                         for ty in range(y-1, y+2)], axis=0)
+                xmin, ymin, xmax, ymax = mosaic_bounds(x, y, buildings)
+                mosaic = np.concatenate([np.concatenate([tile(tx, ty) for tx in range(xmin, xmax+1)], axis=1)
+                                         for ty in range(ymin, ymax+1)], axis=0)
                 affine = tile_transform(x, y)
                 left, top = affine * (0, 0)
                 right, bottom = affine * (256, 256)
                 latitude = Transformer.from_crs(3857, 4326, always_xy=True).transform((left+right)/2, (top+bottom)/2)[1]
-                mask = model.predict_tile(mosaic, tile_transform(x-1, y-1), buildings,
+                mask = model.predict_tile(mosaic, tile_transform(xmin, ymin), buildings,
                                           (left, bottom, right, top), latitude)
                 prediction = type('Prediction', (), {'masks': [mask], 'scores': [1.0]})()
                 result = export_tile(x, y, prediction)

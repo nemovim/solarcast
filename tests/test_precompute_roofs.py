@@ -10,11 +10,37 @@ from shapely.geometry import mapping, box
 from modules.imagery.tiles import tile_transform
 from modules.imagery.buildings import fetch_buildings
 from modules.roof.inference.sam import SamRoofModel
-from pipelines.precompute_roofs import main
+from pipelines.precompute_roofs import main, mosaic_bounds
 from pipelines.precompute import main as run_pipeline
 
 
 class RoofPrecomputeTests(unittest.TestCase):
+    def test_mosaic_expands_for_large_building_and_extracts_target_tile(self):
+        x, y = 446793, 207630
+        affine = tile_transform(x, y)
+        left, top = affine * (-400, 40)
+        right, bottom = affine * (100, 100)
+        to_wgs = Transformer.from_crs(3857, 4326, always_xy=True)
+        west, south = to_wgs.transform(left, bottom)
+        east, north = to_wgs.transform(right, top)
+        feature = {'geometry': mapping(box(west, south, east, north))}
+        xmin, ymin, xmax, ymax = mosaic_bounds(x, y, [feature])
+        self.assertLess(xmin, x - 1)
+        class FakePredictor:
+            def set_image(self, crop): self.shape = crop.shape[:2]
+            def predict(self, **kwargs):
+                return np.ones((1, *self.shape), dtype=bool), np.array([0.9]), None
+        model = SamRoofModel.__new__(SamRoofModel)
+        model.predictor = FakePredictor()
+        tile_left, tile_top = affine * (0, 0)
+        tile_right, tile_bottom = affine * (256, 256)
+        image = np.full(((ymax-ymin+1)*256, (xmax-xmin+1)*256, 3), 255, dtype=np.uint8)
+        result = model.predict_tile(image, tile_transform(xmin, ymin), [feature],
+                                    (tile_left, tile_bottom, tile_right, tile_top), 35.0)
+        self.assertEqual(result.shape, (256, 256))
+        self.assertTrue(result[75, 75])
+        self.assertFalse(result[150, 150])
+
     def test_pipeline_passes_model_names_to_both_steps(self):
         with patch('sys.argv', ['precompute', '--panel', 'panel2', '--roof', 'sam2', '--bounds', '1', '2', '3', '4']), \
              patch('pipelines.precompute.subprocess.run') as run:
@@ -86,6 +112,7 @@ class RoofPrecomputeTests(unittest.TestCase):
                  patch('pipelines.precompute_roofs.BITGARAM_BOUNDS', (446793, 207630, 446794, 207630)), \
                  patch.dict('os.environ', {'VWORLD_KEY': 'fake-key', 'VWORLD_DOMAIN': ''}), \
                  patch('pipelines.precompute_roofs.SamRoofModel', FakeModel), \
+                 patch('pipelines.precompute_roofs.mosaic_bounds', return_value=(446792, 207629, 446794, 207631)), \
                  patch('pipelines.precompute_roofs.fetch_tile', return_value=np.zeros((256, 256, 3), np.uint8)), \
                  patch('pipelines.precompute_roofs.fetch_buildings', side_effect=[[{'geometry': {}}], RuntimeError('failed')]):
                 with self.assertRaisesRegex(RuntimeError, '1 roof tiles failed'):
