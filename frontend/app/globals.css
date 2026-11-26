@@ -1,0 +1,108 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+  --base: #111813;
+  --panel: #18211b;
+  --line: #344239;
+  --muted: #a9b8ae;
+  --text: #edf1e9;
+  --leaf: #e8ec85;
+}
+
+html { background: var(--base); }
+@media (pointer: fine) { html { overscroll-behavior: none; } }
+body { color: var(--text); font-family: Pretendard, 'Noto Sans KR Variable', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; font-size: 14px; line-height: 1.7; word-break: keep-all; }
+h1, h2 { text-wrap: balance; }
+button, a, input { touch-action: manipulation; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .5; }
+:focus-visible { outline: 2px solid var(--leaf); outline-offset: 3px; }
+.skip-link { position: fixed; z-index: 20; top: 8px; left: 8px; padding: 8px 12px; background: var(--leaf); color: var(--base); clip-path: inset(50%); }
+.skip-link:focus { clip-path: none; }
+.shell { width: min(1680px, calc(100% - 40px)); margin-inline: auto; }
+.masthead { border-bottom: 1px solid #29362e; }
+.masthead .shell { min-height: 72px; }
+.brand-symbol { display: grid; place-items: center; width: 40px; height: 40px; background: var(--leaf); color: #1a261d; border-radius: 11px; }
+.brand { font-size: 22px; font-weight: 800; line-height: 1.2; letter-spacing: -.045em; }
+.brand span { color: var(--leaf); }
+.brand-sub { color: var(--muted); font-size: 11px; }
+.status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; font-size: 11px; border: 1px solid #435147; border-radius: 99px; padding: 4px 10px; color: #d8e3d8; }
+.status i { width: 6px; height: 6px; border-radius: 50%; background: var(--leaf); }
+.workspace { padding-block: 22px 20px; scroll-margin-top: 16px; }
+.page-intro { margin-bottom: 16px; }
+.page-intro h1 { font-size: clamp(28px, 3.2vw, 38px); line-height: 1.2; font-weight: 750; }
+.page-intro p { margin-top: 9px; color: var(--muted); }
+.help-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; color: var(--muted); font-size: 12px; }
+.help-link:hover { color: var(--leaf); }
+.workspace-grid { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
+.panel { border: 1px solid var(--line); background: var(--panel); border-radius: 13px; }
+.module-heading { min-height: 57px; padding: 12px 17px; }
+.module-heading h2 { font-size: 15px; font-weight: 700; }
+.module-heading h2 svg { color: var(--leaf); flex: none; }
+.places button { border: 1px solid #3b4b40; border-radius: 5px; padding: 3px 10px; color: #d1dbd2; font-size: 12px; min-height: 30px; }
+.places button:hover { background: #293a2e; border-color: #7a8f7b; }
+.map-card { display: flex; flex-direction: column; }
+.map-frame { min-height: clamp(510px, calc(100svh - 238px), 960px); flex: 1; margin-inline: 8px; border-radius: 8px; background-color: #25382c; background-image: linear-gradient(#4a66523b 1px, transparent 1px), linear-gradient(90deg, #4a66523b 1px, transparent 1px); background-size: 34px 34px; }
+.map-canvas.maplibregl-map { position: absolute; inset: 0; }
+.map-canvas .maplibregl-ctrl-bottom-right { color-scheme: light; }
+.map-canvas .maplibregl-ctrl-attrib { max-width: 100%; }
+.map-tools button, .map-tag, .map-caption { background: #18231cea; color: #edf1e9; border: 1px solid #657a66; border-radius: 7px; }
+.map-tag, .map-caption { padding: 5px 9px; font-size: 11px; pointer-events: none; }
+.map-caption { bottom: 30px; display: flex; align-items: center; gap: 6px; }
+.map-tag svg, .map-caption svg { color: var(--leaf); }
+.map-tools button { display: grid; place-items: center; width: 38px; height: 38px; }
+.map-tools .map-view-mode { align-content: center; gap: 1px; font-size: 10px; line-height: 1; font-weight: 700; }
+.map-tools button:hover:not(:disabled) { background: #344a3a; }
+.map-demo-button { position: absolute; top: 52px; left: 16px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; min-height: 38px; border: 1px solid #e8ec85; border-radius: 7px; background: #18231c; color: var(--leaf); font-size: 12px; font-weight: 650; }
+.map-demo-button:hover:not(:disabled) { background: var(--leaf); color: var(--base); }
+.map-center-info { position: absolute; top: 99px; left: 16px; display: inline-flex; align-items: center; gap: 6px; min-height: 33px; padding: 5px 9px; border: 1px solid #657a66; border-radius: 7px; background: #18231c; font-size: 11px; }
+.map-center-info:hover { background: #344a3a; }
+.zoom-buttons button:first-child { border-radius: 7px 7px 0 0; }
+.zoom-buttons button:last-child { border-radius: 0 0 7px 7px; border-top: none; }
+.map-message { position: absolute; inset: 0; display: flex; flex-direction: column; place-content: center; align-items: center; gap: 5px; pointer-events: none; padding: 25px; text-align: center; }
+.map-message svg { color: var(--leaf); margin-bottom: 5px; }
+.map-message span { color: var(--muted); font-size: 12px; }
+.settings .module-heading { border-bottom: 1px solid var(--line); }
+.settings-body { padding: 14px 16px 11px; display: grid; gap: 13px; }
+.settings fieldset { min-inline-size: 0; }
+.settings select { width: 100%; min-height: 33px; padding: 4px 7px; border: 1px solid #405045; border-radius: 5px; background: #131d16; color: inherit; }
+.settings legend { font-weight: 650; font-size: 13px; margin-bottom: 6px; }
+.settings legend span { font-weight: 400; color: var(--muted); font-size: 11px; }
+.settings legend svg { color: #a9bba9; }
+.layer-option { display: flex; align-items: center; gap: 7px; min-height: 32px; padding: 3px 7px; border: 1px solid #3c4b40; border-radius: 5px; cursor: pointer; color: #e2ebe3; font-size: 12px; }
+.layer-option:hover { background: #26372b; }
+.layer-option input { accent-color: var(--layer-color); width: 15px; height: 15px; flex: none; }
+.start-area { border-top: 1px solid var(--line); padding-top: 11px; }
+.start-button { padding: 9px 11px; min-height: 42px; border-radius: 6px; background: var(--leaf); color: #1b271e; font-weight: 750; }
+.start-button:hover { background: #f6f8b5; }
+.start-area p { min-height: 20px; margin-top: 6px; color: var(--muted); font-size: 11px; }
+.start-area p.notice-active { color: var(--leaf); }
+.building-popup { position: absolute; bottom: 38px; left: 16px; z-index: 2; width: min(310px, calc(100% - 32px)); padding: 12px 14px; border: 1px solid #6b806e; border-radius: 9px; background: #152119; box-shadow: 0 8px 28px #10171170; }
+.building-sample { display: flex; align-items: center; gap: 6px; color: var(--leaf); font-size: 11px; font-weight: 650; }
+.building-popup h3 { margin-top: 2px; font-size: 20px; font-weight: 750; text-wrap: balance; }
+.building-popup-heading button { display: grid; place-items: center; min-width: 32px; min-height: 32px; border: 1px solid #506554; border-radius: 5px; }
+.building-popup-heading button:hover { background: #2d4334; }
+#building-result-note { color: var(--muted); font-size: 11px; }
+.building-metrics { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; display: grid; gap: 3px; }
+.building-metrics > div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px; }
+.building-metrics dt, .building-metrics small { color: #c0cfc3; font-size: 11px; font-weight: 500; }
+.building-metrics dd { color: var(--leaf); font-weight: 750; font-size: 17px; font-variant-numeric: tabular-nums; }
+.workspace-footer { color: var(--muted); margin-top: 15px; font-size: 11px; scroll-margin-top: 20px; }
+.workspace-footer p { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.workspace-footer span { color: #d2dfd2; }
+
+@media (max-width: 850px) {
+  .shell { width: calc(100% - 36px); }
+  .workspace-grid { grid-template-columns: minmax(0, 1fr); }
+  .map-frame { min-height: clamp(420px, 67svh, 650px); }
+}
+@media (max-width: 480px) {
+  .shell { width: calc(100% - 28px); }
+  .workspace { padding-top: 22px; }
+  .page-intro { align-items: flex-start; flex-direction: column; gap: 4px; margin-bottom: 13px; }
+  .masthead .shell { min-height: 60px; }
+  .module-heading { padding-inline: 10px; }
+  .places button { padding-inline: 7px; }
+  .map-caption { bottom: 28px; }
+}

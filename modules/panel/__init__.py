@@ -1,0 +1,1 @@
+"""Panel model service code."""
