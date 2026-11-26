@@ -20,6 +20,7 @@ from modules.imagery.tiles import BITGARAM_BOUNDS, tile_transform
 from modules.imagery.vworld import fetch_tile
 from modules.roof.inference.sam import SamRoofModel
 from pipelines.precompute_panels import atomic_json, export_tile, model_hash, update_catalog
+from pipelines.shutdown import hard_exit_after_success
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -58,6 +59,8 @@ def main():
     parser.add_argument('--bounds', type=int, nargs=4, metavar=('X_MIN','Y_MIN','X_MAX','Y_MAX'))
     parser.add_argument('--output', type=Path, default=ROOT/'frontend/public/precomputed/roof')
     parser.add_argument('--device', default='cuda:0')
+    parser.add_argument('--hard-exit-after-success', dest='hard_exit_after_success', action='store_true', default=True, help='Bypass native shutdown hooks after successful processing (default)')
+    parser.add_argument('--normal-exit', dest='hard_exit_after_success', action='store_false', help='Use normal Python shutdown')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.model):
         parser.error('Model must be a filename in models/roof')
@@ -136,7 +139,10 @@ def main():
             print(f'[{index}/{len(pending)}] {tile_id}: failed ({type(exc).__name__}: {exc})', flush=True)
     if failures:
         raise RuntimeError(f'{len(failures)} roof tiles failed and remain unprocessed: {", ".join(failures[:10])}')
+    return args.device if args.hard_exit_after_success else None
 
 
 if __name__ == '__main__':
-    main()
+    exit_device = main()
+    if exit_device is not None:
+        hard_exit_after_success(exit_device)

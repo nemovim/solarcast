@@ -12,10 +12,14 @@ def main():
     parser.add_argument('--tile-index', help='CSV with x,y tile coordinates')
     parser.add_argument('--bounds', type=int, nargs=4, metavar=('X_MIN', 'Y_MIN', 'X_MAX', 'Y_MAX'))
     parser.add_argument('--device', default='cuda:0')
+    parser.add_argument('--hard-exit-after-success', dest='hard_exit_after_success', action='store_true', default=True, help='Bypass native shutdown hooks after successful GPU processing (default)')
+    parser.add_argument('--normal-exit', dest='hard_exit_after_success', action='store_false', help='Use normal Python shutdown')
     args = parser.parse_args()
     if args.bounds and args.tile_index:
         parser.error('Choose either --bounds or --tile-index')
     common = ['--device', args.device]
+    if not args.hard_exit_after_success:
+        common.append('--normal-exit')
     if args.tile_index:
         common += ['--tile-index', args.tile_index]
     if args.bounds:

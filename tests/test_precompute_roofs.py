@@ -42,7 +42,7 @@ class RoofPrecomputeTests(unittest.TestCase):
         self.assertFalse(result[150, 150])
 
     def test_pipeline_passes_model_names_to_both_steps(self):
-        with patch('sys.argv', ['precompute', '--panel', 'panel2', '--roof', 'sam2', '--bounds', '1', '2', '3', '4']), \
+        with patch('sys.argv', ['precompute', '--panel', 'panel2', '--roof', 'sam2', '--bounds', '1', '2', '3', '4', '--normal-exit']), \
              patch('pipelines.precompute.subprocess.run') as run:
             run_pipeline()
         self.assertEqual(run.call_count, 2)
@@ -50,6 +50,8 @@ class RoofPrecomputeTests(unittest.TestCase):
         self.assertEqual(panel[2:4], ['pipelines.precompute_panels', 'panel2'])
         self.assertEqual(roof[2:4], ['pipelines.precompute_roofs', 'sam2'])
         self.assertIn('--bounds', roof)
+        self.assertIn('--normal-exit', panel)
+        self.assertIn('--normal-exit', roof)
 
     def test_building_api_rejects_incomplete_pages(self):
         class Response:
@@ -108,15 +110,17 @@ class RoofPrecomputeTests(unittest.TestCase):
             index.parent.mkdir(parents=True, exist_ok=True)
             index.write_text('x,y\n446793,207630\n446794,207630\n', encoding='utf-8')
             argv = ['precompute_roofs']
-            with patch('sys.argv', argv), patch('pipelines.precompute_roofs.ROOT', root), \
+            with patch('sys.argv', argv + ['--hard-exit-after-success']), patch('pipelines.precompute_roofs.ROOT', root), \
                  patch('pipelines.precompute_roofs.BITGARAM_BOUNDS', (446793, 207630, 446794, 207630)), \
                  patch.dict('os.environ', {'VWORLD_KEY': 'fake-key', 'VWORLD_DOMAIN': ''}), \
                  patch('pipelines.precompute_roofs.SamRoofModel', FakeModel), \
+                 patch('pipelines.precompute_roofs.hard_exit_after_success') as hard_exit, \
                  patch('pipelines.precompute_roofs.mosaic_bounds', return_value=(446792, 207629, 446794, 207631)), \
                  patch('pipelines.precompute_roofs.fetch_tile', return_value=np.zeros((256, 256, 3), np.uint8)), \
                  patch('pipelines.precompute_roofs.fetch_buildings', side_effect=[[{'geometry': {}}], RuntimeError('failed')]):
                 with self.assertRaisesRegex(RuntimeError, '1 roof tiles failed'):
                     main()
+                hard_exit.assert_not_called()
             output = root/'frontend/public/precomputed/roof/model'
             manifest = json.loads((output/'manifest.json').read_text(encoding='utf-8'))
             self.assertIn('446793_207630', manifest['tiles'])

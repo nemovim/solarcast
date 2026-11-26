@@ -30,6 +30,8 @@ python -m pipelines.precompute
 python -m pipelines.precompute --bounds 446793 207630 446793 207630
 ```
 
+Backend.AI의 `nvmlShutdown` 종료 오류를 피하기 위해 기본적으로 저장과 CUDA 동기화가 성공한 뒤 네이티브 종료 처리를 건너뜁니다. 처리 중 오류는 그대로 보고합니다. 정상 종료가 필요하면 `--normal-exit`을 추가하세요.
+
 웹 배포 빌드는 `frontend`에서 `npm run build`로 실행합니다. 이 명령은 웹팩을 사용합니다.
 
 다른 가중치를 선택하려면 이름을 옵션으로 적습니다. 예를 들어 `models/panel/my_panel.pth`와 `models/roof/my_roof.pth`는 아래처럼 지정합니다. `.pth`는 생략할 수 있습니다.

@@ -20,6 +20,7 @@ from shapely import make_valid
 from modules.imagery.tiles import BITGARAM_BOUNDS, tile_transform
 from modules.imagery.vworld import fetch_tile
 from modules.panel.inference.rtmdet import RTMDetPanelModel
+from pipelines.shutdown import hard_exit_after_success
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,6 +86,8 @@ def main():
     parser.add_argument('--bounds', type=int, nargs=4, metavar=('X_MIN','Y_MIN','X_MAX','Y_MAX'))
     parser.add_argument('--all', action='store_true', help='Process every input tile (default when --bounds is omitted)')
     parser.add_argument('--threads', type=int, default=2)
+    parser.add_argument('--hard-exit-after-success', dest='hard_exit_after_success', action='store_true', default=True, help='Bypass native shutdown hooks after successful processing (default)')
+    parser.add_argument('--normal-exit', dest='hard_exit_after_success', action='store_false', help='Use normal Python shutdown')
     args = parser.parse_args()
     if args.model and args.checkpoint:
         parser.error('Choose a model name or --checkpoint, not both')
@@ -179,7 +182,10 @@ def main():
             update_catalog(output_root)
             catalog_updated = True
         print(f'[{index}/{len(coords)}] {key}: {len(output["features"])} detections', flush=True)
+    return args.device if args.hard_exit_after_success else None
 
 
 if __name__ == '__main__':
-    main()
+    exit_device = main()
+    if exit_device is not None:
+        hard_exit_after_success(exit_device)

@@ -48,8 +48,8 @@ class PrecomputeTests(unittest.TestCase):
             output = root / 'output'
             argv = ['precompute', '--source', 'local', '--tiles', str(tiles), '--config', str(config), '--checkpoint', str(checkpoint), '--output', str(output), '--bounds', '446793', '207630', '446793', '207630']
             with patch('sys.argv', argv), patch('pipelines.precompute_panels.RTMDetPanelModel', FakeModel):
-                main()
-                main()
+                self.assertEqual(main(), 'cuda:0')
+                self.assertIsNone(main())
             manifest = json.loads((output / 'model/manifest.json').read_text(encoding='utf-8'))
             self.assertEqual(seen, [(256, 256, 3)])
             self.assertEqual(manifest['tiles']['446793_207630']['count'], 0)
