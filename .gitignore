@@ -17,6 +17,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+.local-deps/
+.local-tools/
+.python-runtime/
 venv/
 *.egg-info/
 
@@ -27,6 +30,7 @@ desktop.ini
 
 # 임시 폴더
 /tmp
+/legacy
 
 # 원천 대용량 데이터 (재배포 금지 및 재생성 가능 산출물)
 /data/bitgaram/
@@ -42,6 +46,9 @@ data/*/raw_tiles/
 models/
 *.pt
 *.pth
+
+# 학습 산출물
+/outputs/training/
 
 # 개인별 마스킹 결과
 /data/bitgaram/annotations_v2/

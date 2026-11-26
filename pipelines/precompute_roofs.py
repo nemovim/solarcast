@@ -1,0 +1,111 @@
+"""Precompute SAM ViT-H roof masks from VWorld imagery and building footprints."""
+import argparse
+import csv
+from datetime import datetime, timezone
+from functools import lru_cache
+import json
+import os
+from pathlib import Path
+import re
+
+import numpy as np
+from pyproj import Transformer
+from dotenv import load_dotenv
+
+from modules.imagery.buildings import fetch_buildings
+from modules.imagery.tiles import BITGARAM_BOUNDS, tile_transform
+from modules.imagery.vworld import fetch_tile
+from modules.roof.inference.sam import SamRoofModel
+from pipelines.precompute_panels import atomic_json, export_tile, model_hash, update_catalog
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('model', nargs='?', default='model', help='SAM ViT-H checkpoint in models/roof; .pth may be omitted')
+    parser.add_argument('--tile-index', type=Path, help='CSV with x,y columns (overrides the default Bitgaram area)')
+    parser.add_argument('--bounds', type=int, nargs=4, metavar=('X_MIN','Y_MIN','X_MAX','Y_MAX'))
+    parser.add_argument('--output', type=Path, default=ROOT/'frontend/public/precomputed/roof')
+    parser.add_argument('--device', default='cuda:0')
+    args = parser.parse_args()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.model):
+        parser.error('Model must be a filename in models/roof')
+    if args.bounds and args.tile_index:
+        parser.error('Choose either --bounds or --tile-index')
+    name = args.model if Path(args.model).suffix else args.model + '.pth'
+    checkpoint = ROOT/'models/roof'/name
+    if args.bounds or not args.tile_index:
+        xmin, ymin, xmax, ymax = args.bounds or BITGARAM_BOUNDS
+        if xmin > xmax or ymin > ymax:
+            parser.error('invalid bounds')
+        coords = [(x, y) for x in range(xmin, xmax+1) for y in range(ymin, ymax+1)]
+    else:
+        with args.tile_index.open(encoding='utf-8-sig', newline='') as stream:
+            coords = sorted({(int(row['x']), int(row['y'])) for row in csv.DictReader(stream)})
+    if not coords or any(x < 1 or y < 1 or x >= 2**19-1 or y >= 2**19-1 for x, y in coords):
+        raise ValueError('Invalid or empty z19 tile range')
+    load_dotenv(ROOT/'.env')
+    key, domain = os.getenv('VWORLD_KEY', '').strip(), os.getenv('VWORLD_DOMAIN', '').strip()
+    if not key:
+        raise ValueError('VWORLD_KEY is required')
+    target = args.output/Path(name).stem
+    manifest_path = target/'manifest.json'
+    manifest = {'version': 1, 'zoom': 19, 'kind': 'roof', 'model': Path(name).stem,
+                'model_sha256': model_hash(checkpoint), 'method': 'sam-vit-h-footprint-v1',
+                'source': 'VWorld z19 and LT_C_SPBD', 'imagery_observed_at': None, 'tiles': {}}
+    if manifest_path.exists():
+        current = json.loads(manifest_path.read_text(encoding='utf-8'))
+        if any(current.get(k) != manifest[k] for k in ('version', 'zoom', 'kind', 'model_sha256', 'method')):
+            raise ValueError('Existing output was produced by different model or settings; use a new filename')
+        manifest = current
+    pending = [(x, y) for x, y in coords if f'{x}_{y}' not in manifest['tiles'] or not (target/'tiles'/f'{x}_{y}.geojson').is_file()]
+    if not pending:
+        update_catalog(args.output)
+        print('All requested roof tiles were already processed.', flush=True)
+        return
+    model = SamRoofModel(str(checkpoint), device=args.device)
+
+    @lru_cache(maxsize=96)
+    def tile(x, y):
+        return fetch_tile(x, y, key=key, domain=domain)
+
+    failures = []
+    catalog_updated = False
+    for index, (x, y) in enumerate(pending, 1):
+        tile_id = f'{x}_{y}'
+        try:
+            buildings = fetch_buildings(x, y, key=key, domain=domain)
+            if buildings:
+                mosaic = np.concatenate([np.concatenate([tile(tx, ty) for tx in range(x-1, x+2)], axis=1)
+                                         for ty in range(y-1, y+2)], axis=0)
+                affine = tile_transform(x, y)
+                left, top = affine * (0, 0)
+                right, bottom = affine * (256, 256)
+                latitude = Transformer.from_crs(3857, 4326, always_xy=True).transform((left+right)/2, (top+bottom)/2)[1]
+                mask = model.predict_tile(mosaic, tile_transform(x-1, y-1), buildings,
+                                          (left, bottom, right, top), latitude)
+                prediction = type('Prediction', (), {'masks': [mask], 'scores': [1.0]})()
+                result = export_tile(x, y, prediction)
+                for feature in result['features']:
+                    feature['properties'] = {}
+            else:
+                result = {'type': 'FeatureCollection', 'features': []}
+            now = datetime.now(timezone.utc).isoformat()
+            atomic_json(target/'tiles'/f'{tile_id}.geojson', result)
+            manifest['tiles'][tile_id] = {'file': f'tiles/{tile_id}.geojson', 'count': len(result['features']), 'processed_at': now}
+            manifest['updated_at'] = now
+            atomic_json(manifest_path, manifest)
+            if not catalog_updated:
+                update_catalog(args.output)
+                catalog_updated = True
+            print(f'[{index}/{len(pending)}] {tile_id}: {len(buildings)} buildings', flush=True)
+        except Exception as exc:
+            failures.append(tile_id)
+            print(f'[{index}/{len(pending)}] {tile_id}: failed ({type(exc).__name__}: {exc})', flush=True)
+    if failures:
+        raise RuntimeError(f'{len(failures)} roof tiles failed and remain unprocessed: {", ".join(failures[:10])}')
+
+
+if __name__ == '__main__':
+    main()

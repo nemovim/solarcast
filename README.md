@@ -1,46 +1,63 @@
-# SolarCast
+# SolarCast Version 2
 
-SolarCast의 최종 목표는 국내 여러 지역에서 지도 위치를 선택하면 최신 이용 가능 항공사진을 조회하고, 팀이 학습한 모델을 실행해 옥상 태양광 설치 가능 면적과 예상 연간 발전량을 보여주는 것입니다. 빛가람동은 기존 연구 사례이지 서비스의 고정 분석 범위가 아닙니다.
+VWorld 건물 외곽선과 사전 추론한 패널·옥상 위치로 태양광 잠재량을 추정하는 개발용 MVP입니다. 제출한 [PRD](docs/PRD.md)와 [모델 명세](docs/MODEL_SPEC.md)는 제출 당시 문서로 보존합니다.
 
-## 서비스 실행
+## 실행
 
-Task 1 웹은 지도와 조작·결과 화면 시안입니다. 실제 분석을 수행하지 않습니다. 자세한 지도 설정과 Vercel 제출 절차는 [웹서비스 안내](5_web_service/README.md)를 보세요.
+1. 루트 `.env.example`을 `.env`로 복사하고 `VWORLD_KEY`와 필요한 경우 `VWORLD_DOMAIN`을 입력합니다.
+2. `frontend` 폴더에서 `npm ci`를 실행한 후 `npm run dev`로 웹을 실행합니다. Python 서버는 필요하지 않습니다. 웹 실행 스크립트가 루트 `.env`를 읽습니다.
+3. 브라우저에서 `http://localhost:5173`을 열고 분석할 지역이 화면에 들어오도록 지도를 이동·확대한 뒤 시각을 선택합니다. 화면이 너무 넓으면 분석을 위해 확대해야 합니다. 웹의 가상 건물 예시는 실제 결과와 구분됩니다.
+
+브라우저는 `frontend/public/precomputed/`에서 선택한 패널·옥상 모델의 사전 추론 결과를 읽습니다. 건물 정보와 일사량은 웹에서 조회하며, 신뢰도 필터링·옥상 이용 가능 면적·패널 배치·그림자·연간 발전량도 웹에서 계산합니다. 화면 중 두 모델의 결과가 모두 있는 영역만 분석하고, 미분석 영역은 합계에서 제외합니다. Vercel 배포 시 프로젝트 루트는 `frontend`이며 VWorld 환경변수를 Vercel에 별도로 등록합니다.
+
+## GPU 사전 추론
+
+Backend.AI GPU 환경의 저장소 루트에서 준비하고 실행합니다.
+
+1. CUDA PyTorch가 설치된 GPU 환경에서 `python -m pip install -r requirements.txt`로 기본 의존성을 설치합니다. 이어서 `python -m pip install openmim mmengine==0.10.7 mmdet==3.3.0`과 `mim install mmcv==2.1.0`으로 모델 의존성을 준비합니다. MMCV는 설치된 PyTorch·CUDA와 맞는 빌드가 필요하며 GPU 환경에 따라 별도 빌드가 필요할 수 있습니다. 이 조합은 과거 패널 연구의 버전이며 현재 GPU 환경에서는 아직 검증하지 않았습니다.
+2. 루트 `.env`에 `VWORLD_KEY`와 필요한 `VWORLD_DOMAIN`을 설정합니다.
+3. 패널 가중치를 `models/panel/`에, SAM ViT-H 옥상 가중치를 `models/roof/`에 둡니다. 기본 파일은 각각 `best_model.pth`, `model.pth`입니다. 패널 모델 설정은 `modules/panel/configs/inference.py`이며 가중치와 호환되어야 합니다. 옥상 어댑터는 기존 SAM ViT-H 구조를 사용합니다.
+4. 아래 명령으로 사전 추론을 실행합니다. 빛가람 기본 범위에는 별도 타일 목록이 필요하지 않습니다.
 
 ```bash
-cd 5_web_service
-npm ci
-npm run dev
+python -m pipelines.precompute
 ```
 
-프로덕션 빌드:
+전체 실행 전에 다음 명령으로 한 타일을 검증할 수 있습니다. 두 모델이 해당 GPU에서 실제 추론을 수행합니다.
 
 ```bash
-npm run build
+python -m pipelines.precompute --bounds 446793 207630 446793 207630
 ```
 
-## 최종 분석 흐름
+웹 배포 빌드는 `frontend`에서 `npm run build`로 실행합니다. 이 명령은 웹팩을 사용합니다.
 
-지도에서 구역 선택 → 분석용 영상·건물 조회 → 옥상/장애물 분할 및 기존 패널 탐지 → 설치 가능 영역과 연간 발전량 산정 → 지도와 건물별 결과 표시. 기존 연구 코드는 웹 시안과 독립적으로 보관합니다.
+다른 가중치를 선택하려면 이름을 옵션으로 적습니다. 예를 들어 `models/panel/my_panel.pth`와 `models/roof/my_roof.pth`는 아래처럼 지정합니다. `.pth`는 생략할 수 있습니다.
 
-## 프로젝트 문서와 구성
+```bash
+python -m pipelines.precompute --panel my_panel --roof my_roof
+```
 
-- [PRD](PRD.md): 서비스 요구사항, 사용자 흐름, 기능 범위와 배포 계획
-- [모델 명세](MODEL_SPEC.md): 데이터, NLR 모델, 학습·평가 및 추론 계획
-- [웹서비스 안내](5_web_service/README.md): 실행, 화면 시안 범위, 지도 설정과 제출 절차
-- [항공영상 준비](1_aerial_imagery/README.md)
-- [옥상 설치가능 영역 분석](2_roof_detection/README.md)
-- [태양광 패널 탐지 및 학습](3_panel_detection/README.md)
-- [그림자·발전량 시뮬레이션](4_shadow_simulation/README.md)
+패널의 다른 모델 설정은 `--panel-config <경로>`로 지정합니다. 가중치 파일 이름은 영문, 숫자, 점, 밑줄, 하이픈을 사용합니다. 같은 파일 이름의 가중치나 설정을 바꾸면 기존 결과와 섞지 않도록 중단합니다. 기존 결과를 보존하려면 가중치 파일 이름을 바꿔 새 모델 폴더에 저장합니다.
 
-| 경로 | 역할 |
-|---|---|
-| `1_aerial_imagery/` | 항공영상 수집과 타일 처리 |
-| `2_roof_detection/` | 옥상 설치가능 영역 분석 |
-| `3_panel_detection/` | 태양광 패널 라벨링, 탐지, 학습 |
-| `4_shadow_simulation/` | 그림자와 연간 발전량 계산 |
-| `5_web_service/` | SolarCast 웹 애플리케이션 |
-| `data/`, `outputs/` | 공간 데이터 및 파이프라인 산출물 |
+기본값은 VWorld 영상, 빛가람 z19 범위 `X 446760~446821, Y 207604~207658`의 3,410개 타일, `cuda:0`입니다. 영상은 메모리에서만 읽습니다. 옥상 추론은 VWorld 건물 외곽선을 힌트로 3×3 타일 영상을 사용합니다. 결과는 `frontend/public/precomputed/panel/<가중치 이름>/`과 `frontend/public/precomputed/roof/<가중치 이름>/`에 확장자 없이 저장하고, 각 폴더의 `index.json`을 갱신합니다. 중단 후 같은 명령을 실행하면 성공한 타일을 건너뜁니다. 옥상 건물을 처리하지 못한 타일은 완료로 표시하지 않고 나중에 다시 시도합니다.
 
-## 데이터 이용 안내
+GPU 서버에서 생성한 결과를 적용하려면 **`precomputed/` 전체**를 배포용 프로젝트에 반영한 뒤 다시 배포해야 합니다. 모델 목록은 추론 환경의 결과 폴더들을 기준으로 생성되므로, 기존 모델도 유지하려면 다음 추론 전에 기존 `precomputed/` 전체를 GPU 환경에 복사합니다. 다른 구역은 `--bounds X_MIN Y_MIN X_MAX Y_MAX`로 z19 타일 범위를 지정하거나 `--tile-index <CSV>`로 좌표 목록을 지정할 수 있습니다. 다른 옵션은 `python -m pipelines.precompute --help`로 확인할 수 있습니다. 패널과 옥상을 따로 실행할 때는 `pipelines.precompute_panels`, `pipelines.precompute_roofs`를 사용합니다.
 
-지도 배경과 학습 데이터의 이용 조건은 제공처별로 확인해야 합니다. 웹은 VWorld WMTS로 배경 타일을 조회하며, 원본·축소 타일과 사전 계산 결과를 빌드에 포함하지 않습니다. 연구용 축소 타일이 필요하면 [항공영상 모듈 실행 안내](1_aerial_imagery/README.md#실행-예시)를 참고하고, 허가 없이 원본 영상을 재배포하지 마세요.
+이번 전환에서 로컬 추론 결과는 생성하지 않았습니다. 실제 GPU 환경과 전체 영역 결과는 아직 검증하지 않았습니다. 원본 영상과 파생 결과의 이용·공개 조건은 따로 확인해야 합니다.
+
+## 구조
+
+- `frontend/`: Next.js 지도, 요청·상태·결과 화면.
+- `pipelines/`: 영상 조회와 패널 추론을 연결하는 사전 추론 실행 명령.
+- `modules/imagery/`: 사전 추론용 z19 영상 조회와 좌표 처리.
+- `modules/panel/`: 패널 모델 학습·추론과 추적 가능한 모델 설정.
+- `modules/roof/`: SAM을 이용한 건물별 옥상 분할.
+- `models/panel/`: 별도로 준비하는 모델 가중치. Git에서 제외.
+- `models/roof/`: 별도로 준비하는 SAM ViT-H 가중치. Git에서 제외.
+- `outputs/training/`: 모델 학습 결과. Git에서 제외.
+- `legacy/`: 기존 연구, 실시간 백엔드, 건축물대장 기능 보존.
+- `data/bitgaram/`: 공개에서 제외하는 기존 연구·학습 데이터. 기본 웹 실행과 VWorld 사전 추론에는 필요하지 않음.
+
+## 현재 한계
+
+옥상은 SAM 마스크와 건물 외곽선이 겹치는 부분으로 추정하며 평평한 지붕을 가정합니다. 옥탑·설비·나무·지붕 경사는 반영하지 않습니다. 주변 건물 그림자는 높이와 단순 형상으로 추정합니다. 높이가 없으면 15m, 층수만 있으면 층당 3.3m로 가정합니다. 건축물대장 기반 외곽선 검증은 적용하지 않습니다. VWorld 데이터 처리 허용 근거와 독립 지역 검증도 아직 확보되지 않았습니다. z19는 타일 줌 단계이며 실제 촬영 해상도와 촬영일을 보장하지 않습니다. 계산 결과는 시공 판단에 사용하면 안 됩니다.

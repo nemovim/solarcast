@@ -1,9 +1,0 @@
-.venv/
-.test-deps/
-outputs/*
-!outputs/.gitkeep
-__pycache__/
-*.pyc
-.ipynb_checkpoints/
-models/*
-!models/.gitkeep
