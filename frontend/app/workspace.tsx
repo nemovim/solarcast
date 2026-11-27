@@ -6,7 +6,7 @@ import MapPanel, { INITIAL_POSITION, PLACES, type MapPosition, type Viewport } f
 import { DEFAULT_LAYERS, LAYERS } from './demo-building';
 import type { AnalysisResult } from './analysis';
 import type { FeatureCollection, Polygon } from 'geojson';
-import { coverageGeometry, createPreviewLoader, loadAvailable, readManifest, readModels, type PanelFeature, type RoofFeature, type PrecomputedModel } from './client-precomputed';
+import { cachedManifest, coverageGeometry, createPreviewLoader, createTileStore, loadAvailable, readModels, type PanelFeature, type RoofFeature, type PrecomputedModel } from './client-precomputed';
 import { estimateSolar } from './client-solar';
 
 export default function Workspace({ vworldEnabled }: { vworldEnabled: boolean }) {
@@ -29,8 +29,10 @@ export default function Workspace({ vworldEnabled }: { vworldEnabled: boolean })
   const [previewError, setPreviewError] = useState('');
   const [roofPreviewError, setRoofPreviewError] = useState('');
   const [previewMinimum, setPreviewMinimum] = useState(0.05);
-  const panelLoader = useMemo(() => selectedModel ? createPreviewLoader('panel', selectedModel) : null, [selectedModel]);
-  const roofLoader = useMemo(() => selectedRoofModel ? createPreviewLoader('roof', selectedRoofModel) : null, [selectedRoofModel]);
+  // One store per page so previews and analysis download each manifest and tile once.
+  const [store] = useState(createTileStore);
+  const panelLoader = useMemo(() => selectedModel ? createPreviewLoader('panel', selectedModel, store) : null, [selectedModel, store]);
+  const roofLoader = useMemo(() => selectedRoofModel ? createPreviewLoader('roof', selectedRoofModel, store) : null, [selectedRoofModel, store]);
   const visiblePanels = useMemo(() => ({type:'FeatureCollection' as const, features:previewPanels.filter((panel)=>panel.properties.confidence >= panelThreshold)}), [previewPanels, panelThreshold]);
   const visibleRoofs = useMemo(() => ({type:'FeatureCollection' as const, features:previewRoofs}), [previewRoofs]);
   const [resultSettings, setResultSettings] = useState<string | null>(null);
@@ -54,11 +56,11 @@ export default function Workspace({ vworldEnabled }: { vworldEnabled: boolean })
     let cancelled = false;
     setCoverage({type:'FeatureCollection',features:[]});
     setModelError('');
-    if (selectedModel && selectedRoofModel) void Promise.all([readManifest('panel', selectedModel), readManifest('roof', selectedRoofModel)]).then(([panel, roof]) => {
+    if (selectedModel && selectedRoofModel) void Promise.all([cachedManifest(store, 'panel', selectedModel), cachedManifest(store, 'roof', selectedRoofModel)]).then(([panel, roof]) => {
       if (!cancelled) setCoverage(coverageGeometry(panel, roof));
     }).catch((error) => { if (!cancelled) setModelError(error instanceof Error ? error.message : '분석 가능 영역을 불러오지 못했습니다.'); });
     return () => { cancelled = true; };
-  }, [selectedModel, selectedRoofModel]);
+  }, [selectedModel, selectedRoofModel, store]);
   useEffect(() => {
     setPreviewPanels([]);
     setPreviewError('');
@@ -98,8 +100,9 @@ export default function Workspace({ vworldEnabled }: { vworldEnabled: boolean })
       if (!selectedModel) throw new Error('사용할 사전 추론 모델이 없습니다.');
       if (!selectedRoofModel) throw new Error('사용할 사전 추론 옥상 모델이 없습니다.');
       const progress = (message: string) => { if (sequence === activeRequest.current) setNotice(message); };
-      const { panels, roofs, panelManifest: manifest, roofManifest, coverage: analyzedCoverage, processed, partial } = await loadAvailable(selectedModel,selectedRoofModel,viewport,panelThreshold,progress);
-      const result = await estimateSolar(viewport,panels,roofs,progress,analyzedCoverage);
+      const { panels, roofs, panelManifest: manifest, roofManifest, coverage: analyzedCoverage, processed, partial } = await loadAvailable(selectedModel,selectedRoofModel,viewport,panelThreshold,progress,store);
+      // A fully covered viewport needs no clipping to the processed tiles.
+      const result = await estimateSolar(viewport,panels,roofs,progress,partial ? analyzedCoverage : undefined);
       if (sequence !== activeRequest.current) return;
       result.models.panel=manifest.model;
       result.models.roof=roofManifest.model;

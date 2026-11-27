@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPreviewLoader, loadAvailable, loadPanelPreview, loadPrecomputed, loadRoofs, readModels, viewportTiles, coverageGeometry } from '../app/client-precomputed';
+import { createPreviewLoader, createTileStore, loadAvailable, loadPanelPreview, loadPrecomputed, loadRoofs, readModels, viewportTiles, coverageGeometry } from '../app/client-precomputed';
 import { worldCoordinate } from '../app/client-imagery';
 import type { Viewport } from '../app/map-panel';
 
@@ -113,8 +113,8 @@ test('loads the selected model and its tiles from its own folder', async () => {
   globalThis.fetch=async (url)=> {
     const path=String(url); urls.push(path);
     if (path.endsWith('index.json')) return Response.json({version:1,models:[{id:'first',name:'first'},{id:'second',name:'second'}]});
-    if (path.endsWith('manifest.json')) return Response.json({...manifest,model:'second',tiles:{[key]:{...manifest.tiles[key],count:0}}});
-    return Response.json({type:'FeatureCollection',features:[]});
+    if (path.endsWith('manifest.json')) return Response.json({...manifest,model:'second',tiles:{[key]:{...manifest.tiles[key],count:1}}});
+    return Response.json({type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{confidence:.8}}]});
   };
   try {
     assert.equal((await readModels('panel')).length,2);
@@ -122,9 +122,33 @@ test('loads the selected model and its tiles from its own folder', async () => {
     assert.ok(urls.includes('/precomputed/panel/second/manifest.json'));
     assert.ok(urls.includes(`/precomputed/panel/second/tiles/${key}.geojson`));
     const roof = await loadRoofs('second',viewport,()=>{});
-    assert.equal(roof.roofs.length, 0);
+    assert.equal(roof.roofs.length, 1);
     assert.ok(urls.includes('/precomputed/roof/second/manifest.json'));
     assert.equal(coverageGeometry(manifest,{...manifest,tiles:{}}).features.length,0);
     await assert.rejects(()=>loadPrecomputed('../first',viewport,.5,()=>{}),/이름이 올바르지/);
+  } finally { globalThis.fetch=original; }
+});
+
+test('tiles with no detections are not downloaded and fetched tiles are shared', async () => {
+  const original=globalThis.fetch;
+  const otherKey=`${x+1}_${y}`;
+  const wide: Viewport=[worldCoordinate(x*256+10,y*256+10),worldCoordinate((x+1)*256+200,y*256+10),worldCoordinate((x+1)*256+200,y*256+200),worldCoordinate(x*256+10,y*256+200)];
+  const urls: string[]=[];
+  globalThis.fetch=async (url)=> {
+    const path=String(url); urls.push(path);
+    if (path.endsWith('manifest.json')) return Response.json({...manifest,tiles:{[key]:{...manifest.tiles[key],count:1},[otherKey]:{file:`tiles/${otherKey}.geojson`,count:0,processed_at:'2026-01-01'}}});
+    return Response.json({type:'FeatureCollection',features:[{type:'Feature',geometry:polygon,properties:{confidence:.8}}]});
+  };
+  try {
+    const store=createTileStore();
+    await createPreviewLoader('panel','model',store)(wide);
+    await createPreviewLoader('roof','model',store)(wide);
+    const result=await loadAvailable('model','model',wide,.5,()=>{},store);
+    assert.equal(result.processed,2);
+    assert.equal(result.partial,false);
+    assert.equal(result.panels.length,1);
+    assert.ok(!urls.some((url)=>url.endsWith(`${otherKey}.geojson`)));
+    assert.equal(urls.filter((url)=>url.includes('/tiles/')).length,2);
+    assert.equal(urls.filter((url)=>url.endsWith('manifest.json')).length,2);
   } finally { globalThis.fetch=original; }
 });
