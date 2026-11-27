@@ -1,23 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { annualRowYield, estimateSolar, monthlyShadeFactors } from '../app/client-solar';
+import { annualYield, buildSky, estimateSolar, horizonProfile } from '../app/client-solar';
 import type { Viewport } from '../app/map-panel';
 import { worldCoordinate, worldPixel, extent } from '../app/client-imagery';
 
-test('annual irradiance preserves diffuse light while shading direct light', () => {
-  const ghi=Array(12).fill(100), diffuse=Array(12).fill(40);
-  assert.equal(annualRowYield(ghi,diffuse,Array(12).fill(1)),1200);
-  assert.equal(annualRowYield(ghi,diffuse,Array(12).fill(0)),480);
-  assert.equal(annualRowYield(ghi,diffuse,Array(12).fill(.5)),840);
+test('sky model splits monthly irradiation without losing energy', () => {
+  const monthly=Array(12).fill(100), diffuse=Array(12).fill(40);
+  const sky=buildSky(35.0218,126.7885,monthly,diffuse);
+  const binned=sky.bins.reduce((sum,bin)=>sum+(bin.above[0] ?? 0),0);
+  assert.ok(Math.abs(binned-720)<1e-9);
+  assert.equal(sky.global,1200);
+  assert.ok(Math.abs(annualYield(sky,new Float64Array(120))-1200)<1e-9);
+  // Southern bins carry far more direct light than northern ones at this latitude.
+  assert.ok(sky.bins[60].above[0] > 10*(sky.bins[0].above[0] ?? 0));
 });
 
-test('monthly shade factors interpolate between seasonal days across the year boundary', () => {
-  const values=monthlyShadeFactors([0,1,0,1]);
-  assert.equal(values.length,12);
-  assert.ok(values.every((value)=>value>=0 && value<=1));
-  assert.ok(values[0]>values[1] && values[1]>values[2]);
-  assert.ok(values[3]<values[4] && values[4]<values[5]);
-  assert.ok(monthlyShadeFactors([0.4,0.4,0.4,0.4]).every((value)=>Math.abs(value-0.4)<1e-12));
+test('horizon lookup applies the visible sun and isotropic sky view factor', () => {
+  const sky=buildSky(35.0218,126.7885,Array(12).fill(100),Array(12).fill(40));
+  const h=Math.tan(Math.PI/6);
+  const expectedDirect=sky.bins.reduce((sum,bin)=>sum+bin.tan.reduce((acc,t,i)=>acc+(t>h ? (bin.above[i]-(bin.above[i+1] ?? 0)) : 0),0),0);
+  const value=annualYield(sky,new Float64Array(120).fill(h));
+  assert.ok(Math.abs(value-(expectedDirect+480*.75))<1e-9);
+  assert.ok(Math.abs(annualYield(sky,new Float64Array(120).fill(1e9)))<1e-6);
+});
+
+test('horizon profile finds the steepest edge in each azimuth bin', () => {
+  // A 10 m tall wall 10 m south of the point, 40 m wide; a lower block 20 m east.
+  const wall={rings:[[[-20,-10],[20,-10],[20,-14],[-20,-14],[-20,-10]]],rise:10};
+  const block={rings:[[[20,-2],[24,-2],[24,2],[20,2],[20,-2]]],rise:5};
+  const horizon=horizonProfile(0,0,[wall,block]);
+  assert.ok(Math.abs(horizon[60]-1)<1e-9);
+  assert.ok(Math.abs(horizon[30]-.25)<1e-9);
+  assert.equal(horizon[0],0);
+  assert.equal(horizon[90],0);
+  const sky=buildSky(35.0218,126.7885,Array(12).fill(100),Array(12).fill(40));
+  const shaded=annualYield(sky,horizon);
+  assert.ok(shaded<1200 && shaded>480);
 });
 
 test('map coordinates round trip and reject out-of-region bounds', () => {
@@ -57,7 +75,7 @@ test('footprint estimate includes panel exclusion and neighboring shadows', asyn
       ? Response.json({monthly:Array(12).fill(100),diffuse:Array(12).fill(40)}) : Response.json(buildings);
     assert.ok(target.availableAreaM2! < baseline.availableAreaM2!);
     assert.notEqual(target.annualEnergyKwh,null);
-    assert.equal(target.panelAreaM2! * .2,target.capacityKw);
+    assert.ok(Math.abs(target.panelAreaM2! * .2-target.capacityKw!)<1e-9);
     assert.ok(target.panelAreaM2! <= target.availableAreaM2!);
     const smallerRoof = [{type:'Feature',geometry:box(0,0,8,8),properties:{}}];
     const smaller = await estimateSolar(viewport,[],smallerRoof as never,()=>{});
@@ -100,4 +118,50 @@ test('missing diffuse data leaves generation and shade-qualified panel area unca
     assert.equal(result.summaries[0].panelAreaM2,null);
     assert.equal(result.summaries[0].annualEnergyKwh,null);
   } finally { globalThis.fetch=original; }
+});
+
+test('totals add computed buildings and count the ones left out', async () => {
+  const lon=126.7885, lat=35.0218;
+  const dx=1/(111320*Math.cos(lat*Math.PI/180)), dy=1/110574;
+  const box=(x0:number,y0:number,x1:number,y1:number) => ({ type:'Polygon', coordinates:[[
+    [lon+x0*dx,lat+y0*dy],[lon+x1*dx,lat+y0*dy],[lon+x1*dx,lat+y1*dy],[lon+x0*dx,lat+y1*dy],[lon+x0*dx,lat+y0*dy],
+  ]] });
+  const buildings={type:'FeatureCollection',features:[
+    {type:'Feature',geometry:box(0,0,12,12),properties:{name:'옥상 있음',heightM:15,heightSource:'record'}},
+    {type:'Feature',geometry:box(30,0,42,12),properties:{name:'옥상 없음',heightM:15,heightSource:'record'}},
+  ]};
+  const realFetch=globalThis.fetch;
+  globalThis.fetch=async (input) => String(input).includes('/api/irradiance')
+    ? Response.json({monthly:Array(12).fill(100),diffuse:Array(12).fill(40)}) : Response.json(buildings);
+  const viewport: Viewport=[[lon-2*dx,lat+14*dy],[lon+44*dx,lat+14*dy],[lon+44*dx,lat-2*dy],[lon-2*dx,lat-2*dy]];
+  try {
+    const result=await estimateSolar(viewport,[],[buildings.features[0]] as never,()=>{});
+    const computed=result.summaries.find((b)=>b.name==='옥상 있음')!;
+    assert.equal(result.totals.availableAreaM2,computed.availableAreaM2);
+    assert.equal(result.totals.annualEnergyKwh,computed.annualEnergyKwh);
+    assert.deepEqual(result.excluded,{availableAreaM2:1,panelAreaM2:1,capacityKw:1,annualEnergyKwh:1});
+    const none=await estimateSolar(viewport,[],[],()=>{});
+    assert.equal(none.totals.availableAreaM2,null);
+  } finally { globalThis.fetch=realFetch; }
+});
+
+test('virtual modules are not placed over holes in the usable roof', async () => {
+  const lon=126.7885, lat=35.0218;
+  const dx=1/(111320*Math.cos(lat*Math.PI/180)), dy=1/110574;
+  const ring=(x0:number,y0:number,x1:number,y1:number) => [[lon+x0*dx,lat+y0*dy],[lon+x1*dx,lat+y0*dy],[lon+x1*dx,lat+y1*dy],[lon+x0*dx,lat+y1*dy],[lon+x0*dx,lat+y0*dy]];
+  const buildings={type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Polygon',coordinates:[ring(0,0,20,20)]},properties:{name:'건물',heightM:15,heightSource:'record'}}]};
+  // A 0.5 m hole (two grid cells) grows to about 2.5 m with the 1 m setback; modules that would
+  // only partly cover it must still be rejected.
+  const solid={type:'Feature',geometry:{type:'Polygon',coordinates:[ring(0,0,20,20)]},properties:{}};
+  const holed={type:'Feature',geometry:{type:'Polygon',coordinates:[ring(0,0,20,20),ring(9.75,9.75,10.25,10.25).reverse()]},properties:{}};
+  const realFetch=globalThis.fetch;
+  globalThis.fetch=async (input) => String(input).includes('/api/irradiance')
+    ? Response.json({monthly:Array(12).fill(100),diffuse:Array(12).fill(40)}) : Response.json(buildings);
+  const viewport: Viewport=[[lon-2*dx,lat+22*dy],[lon+22*dx,lat+22*dy],[lon+22*dx,lat-2*dy],[lon-2*dx,lat-2*dy]];
+  try {
+    const full=(await estimateSolar(viewport,[],[solid] as never,()=>{})).summaries[0];
+    const withHole=(await estimateSolar(viewport,[],[holed] as never,()=>{})).summaries[0];
+    assert.ok(withHole.panelAreaM2! < full.panelAreaM2!);
+    assert.ok(withHole.panelAreaM2! <= withHole.availableAreaM2!);
+  } finally { globalThis.fetch=realFetch; }
 });

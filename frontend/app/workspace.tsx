@@ -197,6 +197,7 @@ export default function Workspace({ vworldEnabled }: { vworldEnabled: boolean })
                 {analysis && resultSettings !== currentSettings && <p>설치 후보와 발전량은 이전 화면 범위와 설정을 기준으로 합니다. 현재 설정을 적용하려면 다시 분석해 주세요.</p>}
                 {analysis && <div><h3>분석 구역 합계</h3>
                   <p>{analysis.totals.availableAreaM2 == null ? '설치 후보 미계산' : `설치 후보 ${analysis.totals.availableAreaM2.toLocaleString()}㎡`} · {analysis.totals.panelAreaM2 == null ? '음영 고려 배치 미계산' : `음영 고려 패널 면적 ${analysis.totals.panelAreaM2.toLocaleString()}㎡`} · {analysis.totals.capacityKw == null ? '용량 미계산' : `${analysis.totals.capacityKw.toLocaleString()} kW`} · {analysis.totals.annualEnergyKwh == null ? '발전량 미계산' : `${analysis.totals.annualEnergyKwh.toLocaleString()} kWh/년`}</p>
+                  {(analysis.excluded.availableAreaM2 > 0 || analysis.excluded.annualEnergyKwh > 0) && <p>합계는 계산된 건물만 더한 값입니다. 미계산 건물 제외: 설치 후보 {analysis.excluded.availableAreaM2}개 · 패널 면적·용량·발전량 {analysis.excluded.annualEnergyKwh}개.</p>}
                   <p>설치 후보는 음영 제외 전의 옥상 면적이며, 패널 면적은 연간 일사량 기준을 통과한 가상 배치의 면적입니다.</p>
                   <h3>건물별 분석 결과</h3>
                   {analysis.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
